@@ -17,6 +17,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import LinearSVC
 from sklearn.metrics import classification_report, accuracy_score
 import joblib
+import numpy as np
 
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
@@ -39,6 +40,16 @@ def train_and_eval():
     )
 
     print(f"Train samples: {len(y_train)}, Test samples: {len(y_test)}")
+
+    # Salva dados de treino para reutilizar na análise SafeML (evita reamostragem)
+    config.ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        config.TRAIN_DATA_PATH,
+        X_train=X_train,
+        y_train=y_train,
+        classes=np.array(classes),
+    )
+    print(f"Dados de treino salvos em: {config.TRAIN_DATA_PATH}")
 
     model = make_pipeline(
         StandardScaler(with_mean=False),  # funciona bem com vetores densos e mantém compatibilidade com matriz esparsa
