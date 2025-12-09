@@ -1,2 +1,5 @@
 /base
 /dataset
+/models
+/source/__pycache__
+/artifacts
