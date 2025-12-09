@@ -7,6 +7,7 @@ Recorta o LISA Traffic Light dataset em uma estrutura simples:
 Conta apenas imagens realmente salvas (sem duplicar ou sobrescrever).
 """
 
+import sys
 from pathlib import Path
 import csv
 import os
@@ -15,6 +16,12 @@ from typing import Dict, Iterable
 from collections import defaultdict
 
 from PIL import Image
+
+CURRENT_DIR = Path(__file__).resolve().parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.append(str(CURRENT_DIR))
+
+import config
 
 # Classes de semáforo no LISA
 CLASS_NAMES = [
@@ -28,10 +35,9 @@ CLASS_NAMES = [
 ]
 
 # Caminhos base
-REPO_ROOT = Path(__file__).resolve().parent.parent
-LISA_ROOT = REPO_ROOT.parent / "Codigo" / "OriginalDataSet" / "LISA-dataset"
+LISA_ROOT = config.LISA_ROOT
 ANNOTATIONS_ROOT = LISA_ROOT / "Annotations" / "Annotations"
-OUTPUT_ROOT = REPO_ROOT / "dataset"
+OUTPUT_ROOT = config.DATASET_ROOT
 
 
 def resolve_image_path(rest: str) -> Path:
