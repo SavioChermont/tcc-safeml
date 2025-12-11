@@ -14,11 +14,13 @@ Depois use `safeml_heatmaps.py` para gerar os heatmaps a partir desse arquivo.
 """
 
 import sys
+import argparse
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import joblib
+from tensorflow.keras.models import load_model
 
 from Wasserstein_Dist_PVal import Wasserstein_Dist_PVal
 
@@ -125,21 +127,46 @@ def sample_set(arr: np.ndarray, paths: Optional[np.ndarray], max_n: Optional[int
 
 
 def main():
-    print("Carregando dados para coleta SafeML (Wasserstein)...")
-    if not config.TRAIN_DATA_PATH.exists():
-        raise SystemExit("Cache de treino não encontrado. Rode train_classifier.py antes.")
+    parser = argparse.ArgumentParser(description="Coleta SafeML (Wasserstein + p-valor)")
+    parser.add_argument("--model-path", default=str(config.MODEL_PATH), help="Caminho do modelo (joblib ou .h5)")
+    parser.add_argument("--train-cache", default=str(config.TRAIN_DATA_PATH), help="Cache de treino (npz) com X_train/y_train/classes")
+    parser.add_argument("--output", default=str(config.ARTIFACTS_DIR / "safeml_results.npz"), help="Arquivo de saída .npz")
+    args = parser.parse_args()
 
-    data = np.load(config.TRAIN_DATA_PATH, allow_pickle=True)
+    model_path = Path(args.model_path)
+    train_cache = Path(args.train_cache)
+    if not model_path.is_absolute():
+        model_path = config.REPO_ROOT / model_path
+    if not train_cache.is_absolute():
+        train_cache = config.REPO_ROOT / train_cache
+    out_path = Path(args.output)
+    if not out_path.is_absolute():
+        out_path = config.REPO_ROOT / out_path
+
+    print("Carregando dados para coleta SafeML (Wasserstein)...")
+    if not train_cache.exists():
+        raise SystemExit("Cache de treino não encontrado. Rode o treinamento antes.")
+
+    data = np.load(train_cache, allow_pickle=True)
     X_train = data["X_train"]
     y_train = data["y_train"]
     classes = list(data["classes"])
-    print(f"Cache de treino carregado: {len(y_train)} amostras.")
+    print(f"Cache de treino carregado: {len(y_train)} amostras (cache: {train_cache}).")
 
     X_test, y_test, _, paths_test = load_split("test", max_per_class=None, return_paths=True)
     print(f"Teste: {len(y_test)} amostras.")
 
-    model = joblib.load(config.MODEL_PATH)
-    y_pred = model.predict(X_test)
+    # Carrega modelo (joblib ou .h5)
+    is_cnn = model_path.suffix == ".h5"
+    if is_cnn:
+        model = load_model(model_path)
+        predict_fn = lambda X: np.argmax(model.predict(X.reshape((-1, config.IMG_SIZE[0], config.IMG_SIZE[1], 3)), verbose=0), axis=1)
+    else:
+        model = joblib.load(model_path)
+        predict_fn = model.predict
+    y_pred = predict_fn(X_test)
+    if is_cnn:
+        y_pred = np.array([classes[int(i)] for i in y_pred])
 
     rng = np.random.default_rng(config.SEED)
     artifacts_dir = config.ARTIFACTS_DIR
@@ -197,7 +224,7 @@ def main():
             for p in wrong_paths_sample:
                 print(f"    {p}")
 
-    out_path = artifacts_dir / "safeml_results.npz"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out_path, results=results, classes=np.array(classes))
     print(f"Resultados SafeML salvos em: {out_path}")
 

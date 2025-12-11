@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Gera heatmaps SafeML II a partir do arquivo safeml_results.npz (coletado pelo safeml_collect.py).
+Gera heatmaps SafeML II a partir de um arquivo de resultados (.npz) produzido pelo safeml_collect.py.
 Não recalcula Wasserstein; apenas carrega os mapas e plota.
+
+Use o argumento --results-path para apontar para o arquivo desejado (SVM ou CNN).
 """
 
 import sys
+import argparse
 from pathlib import Path
 from typing import List
 
@@ -32,7 +35,18 @@ def _normalize_for_plot(m: np.ndarray) -> np.ndarray:
 
 
 def main():
-    results_path = config.ARTIFACTS_DIR / "safeml_results.npz"
+    parser = argparse.ArgumentParser(description="Gera heatmaps SafeML II a partir de safeml_results.npz")
+    parser.add_argument(
+        "--results-path",
+        default=str(config.ARTIFACTS_DIR / "safeml_results.npz"),
+        help="Arquivo .npz gerado pelo safeml_collect.py",
+    )
+    args = parser.parse_args()
+
+    results_path = Path(args.results_path)
+    if not results_path.is_absolute():
+        results_path = config.REPO_ROOT / results_path
+
     if not results_path.exists():
         raise SystemExit("Arquivo safeml_results.npz não encontrado. Rode safeml_collect.py primeiro.")
 

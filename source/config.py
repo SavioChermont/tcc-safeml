@@ -8,12 +8,17 @@ DATASET_ROOT = REPO_ROOT / "dataset"
 MODEL_DIR = REPO_ROOT / "models"
 MODEL_PATH = MODEL_DIR / "traffic_light_svm.joblib"
 
+# Segundo modelo (CNN)
+MODEL_PATH_CNN = MODEL_DIR / "traffic_light_cnn.h5"
+
 # Caminho para o dataset original LISA (anotações + frames)
 LISA_ROOT = REPO_ROOT.parent / "Codigo" / "OriginalDataSet" / "LISA-dataset"
 
 # Artefatos auxiliares
 ARTIFACTS_DIR = REPO_ROOT / "artifacts"
 TRAIN_DATA_PATH = ARTIFACTS_DIR / "train_data.npz"
+# Cache específico para a CNN (mesma estrutura, flatten)
+TRAIN_DATA_PATH_CNN = ARTIFACTS_DIR / "train_data_cnn.npz"
 
 # Imagens redimensionadas para o classificador baseline
 IMG_SIZE = (30, 30)
