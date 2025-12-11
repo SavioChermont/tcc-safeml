@@ -28,7 +28,10 @@ MAX_PER_CLASS_TRAIN = 3000
 SEED = 43
 
 # Amostragem para a análise Wasserstein (limita elementos por conjunto)
-WASSERSTEIN_MAX_SAMPLES = 30
+WASSERSTEIN_MAX_SAMPLES = 10
 
 # Nível de significância para p-valor (SafeML II)
 SAFE_PVAL_ALPHA = 0.05
+
+# Para heatmaps: se True, usa apenas 1 exemplo errado (além do treino amostrado)
+HEATMAP_USE_SINGLE_WRONG = True
