@@ -87,7 +87,7 @@ def main():
     print(f"Modelo CNN salvo em: {config.MODEL_PATH_CNN}")
 
     # Salva cache para SafeML (flatten + classes)
-    config.ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    config.ARTIFACTS_DIR_CNN.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         config.TRAIN_DATA_PATH_CNN,
         X_train=X_train_flat,

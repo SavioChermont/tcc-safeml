@@ -1,23 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-Treina um classificador simples (scikit-learn) usando o dataset recortado.
-
-Estrutura esperada:
-    dataset/train/<classe>/*.jpg
-    dataset/test/<classe>/*.jpg
-
-Modelo: pipeline StandardScaler + LinearSVC sobre vetores de pixels
-        (imagens redimensionadas para 30x30 e achatadas).
+Treina um classificador LinearSVC sobre imagens 30x30 recortadas.
+Salva:
+- Modelo: models/traffic_light_svm.joblib
+- Cache SafeML: artifacts/svm/train_data.npz (flatten + classes)
 """
+
 import sys
 from pathlib import Path
 
+import joblib
+import numpy as np
+from sklearn.metrics import accuracy_score, classification_report
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import LinearSVC
-from sklearn.metrics import classification_report, accuracy_score
-import joblib
-import numpy as np
 
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
@@ -28,7 +25,6 @@ from data_utils import load_split
 
 
 def train_and_eval():
-    """Treina o modelo e avalia no conjunto de teste."""
     print(f"Lendo dados de {config.DATASET_ROOT}")
     X_train, y_train, classes = load_split(
         "train",
@@ -36,13 +32,13 @@ def train_and_eval():
     )
     X_test, y_test, _ = load_split(
         "test",
-        max_per_class=None,  # avalia com tudo no teste
+        max_per_class=None,
     )
 
     print(f"Train samples: {len(y_train)}, Test samples: {len(y_test)}")
 
-    # Salva dados de treino para reutilizar na análise SafeML (evita reamostragem)
-    config.ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    # Cache para SafeML (treino)
+    config.ARTIFACTS_DIR_SVM.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         config.TRAIN_DATA_PATH,
         X_train=X_train,
@@ -52,10 +48,9 @@ def train_and_eval():
     print(f"Dados de treino salvos em: {config.TRAIN_DATA_PATH}")
 
     model = make_pipeline(
-        StandardScaler(with_mean=False),  # funciona bem com vetores densos e mantém compatibilidade com matriz esparsa
+        StandardScaler(with_mean=False),
         LinearSVC(),
     )
-
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
 

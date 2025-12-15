@@ -41,6 +41,11 @@ def main():
         default=str(config.ARTIFACTS_DIR / "safeml_results.npz"),
         help="Arquivo .npz gerado pelo safeml_collect.py",
     )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Diretório de saída para os PNGs; default é a pasta do results-path",
+    )
     args = parser.parse_args()
 
     results_path = Path(args.results_path)
@@ -54,6 +59,11 @@ def main():
     results = data["results"].item()  # dict por classe
     classes = data["classes"]
 
+    out_dir = Path(args.output_dir) if args.output_dir else results_path.parent
+    if not out_dir.is_absolute():
+        out_dir = config.REPO_ROOT / out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     channel_names = ["R", "G", "B"]
 
     for cls in classes:
@@ -65,9 +75,6 @@ def main():
         if wd_maps is None or wd_sig_maps is None:
             print(f"Sem mapas para a classe {cls}, pulando.")
             continue
-
-        artifacts_dir = config.ARTIFACTS_DIR
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         # Painel 1x2 agregado (média dos 3 canais)
         wd_stack = np.stack(wd_maps, axis=-1)
@@ -89,7 +96,7 @@ def main():
         axes[1].axis("off")
         fig.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04)
 
-        out_path_panel = artifacts_dir / f"{cls}_safeMLII_panel.png"
+        out_path_panel = out_dir / f"{cls}_safeMLII_panel.png"
         plt.tight_layout()
         plt.savefig(out_path_panel, dpi=300, bbox_inches="tight")
         plt.close(fig)
@@ -106,11 +113,11 @@ def main():
                 plt.imshow(data, cmap="hot", interpolation="bilinear")
                 plt.axis("off")
                 plt.title(title)
-                out_path = artifacts_dir / f"{cls}_{channel_names[ch]}_{name}.png"
+                out_path = out_dir / f"{cls}_{channel_names[ch]}_{name}.png"
                 plt.savefig(out_path, dpi=200, bbox_inches="tight")
                 plt.close()
 
-        print(f"Painéis/heatmaps salvos para a classe {cls} em {artifacts_dir}")
+        print(f"Painéis/heatmaps salvos para a classe {cls} em {out_dir}")
 
 
 if __name__ == "__main__":

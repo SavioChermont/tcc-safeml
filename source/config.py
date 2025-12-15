@@ -16,9 +16,14 @@ LISA_ROOT = REPO_ROOT.parent / "Codigo" / "OriginalDataSet" / "LISA-dataset"
 
 # Artefatos auxiliares
 ARTIFACTS_DIR = REPO_ROOT / "artifacts"
-TRAIN_DATA_PATH = ARTIFACTS_DIR / "train_data.npz"
-# Cache específico para a CNN (mesma estrutura, flatten)
-TRAIN_DATA_PATH_CNN = ARTIFACTS_DIR / "train_data_cnn.npz"
+
+# Subpastas por modelo
+ARTIFACTS_DIR_SVM = ARTIFACTS_DIR / "svm"
+ARTIFACTS_DIR_CNN = ARTIFACTS_DIR / "cnn"
+
+# Caches de treino (flatten) por modelo
+TRAIN_DATA_PATH = ARTIFACTS_DIR_SVM / "train_data.npz"       # SVM
+TRAIN_DATA_PATH_CNN = ARTIFACTS_DIR_CNN / "train_data.npz"   # CNN
 
 # Imagens redimensionadas para o classificador baseline
 IMG_SIZE = (30, 30)

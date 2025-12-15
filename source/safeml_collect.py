@@ -128,20 +128,35 @@ def sample_set(arr: np.ndarray, paths: Optional[np.ndarray], max_n: Optional[int
 
 def main():
     parser = argparse.ArgumentParser(description="Coleta SafeML (Wasserstein + p-valor)")
-    parser.add_argument("--model-path", default=str(config.MODEL_PATH), help="Caminho do modelo (joblib ou .h5)")
-    parser.add_argument("--train-cache", default=str(config.TRAIN_DATA_PATH), help="Cache de treino (npz) com X_train/y_train/classes")
-    parser.add_argument("--output", default=str(config.ARTIFACTS_DIR / "safeml_results.npz"), help="Arquivo de saída .npz")
+    parser.add_argument("--model-path", default=None, help="Caminho do modelo (joblib ou .h5). Se omitido, usa o padrão da tag.")
+    parser.add_argument("--train-cache", default=None, help="Cache de treino (npz) com X_train/y_train/classes. Se omitido, usa o padrão da tag.")
+    parser.add_argument("--tag", default="svm", help="Tag do modelo (ex.: svm, cnn) para escolher caminhos padrão e subpasta de saída.")
+    parser.add_argument("--output", default=None, help="Arquivo de saída .npz (opcional; sobrescreve --tag)")
     args = parser.parse_args()
 
-    model_path = Path(args.model_path)
-    train_cache = Path(args.train_cache)
+    # Define caminhos padrão por tag
+    if args.tag == "cnn":
+        default_model = config.MODEL_PATH_CNN
+        default_cache = config.TRAIN_DATA_PATH_CNN
+    else:
+        default_model = config.MODEL_PATH
+        default_cache = config.TRAIN_DATA_PATH
+
+    model_path = Path(args.model_path) if args.model_path else default_model
+    train_cache = Path(args.train_cache) if args.train_cache else default_cache
     if not model_path.is_absolute():
         model_path = config.REPO_ROOT / model_path
     if not train_cache.is_absolute():
         train_cache = config.REPO_ROOT / train_cache
-    out_path = Path(args.output)
-    if not out_path.is_absolute():
-        out_path = config.REPO_ROOT / out_path
+
+    if args.output:
+        out_path = Path(args.output)
+        if not out_path.is_absolute():
+            out_path = config.REPO_ROOT / out_path
+        out_dir = out_path.parent
+    else:
+        out_dir = config.ARTIFACTS_DIR / (args.tag or "")
+        out_path = out_dir / "safeml_results.npz"
 
     print("Carregando dados para coleta SafeML (Wasserstein)...")
     if not train_cache.exists():
@@ -169,8 +184,7 @@ def main():
         y_pred = np.array([classes[int(i)] for i in y_pred])
 
     rng = np.random.default_rng(config.SEED)
-    artifacts_dir = config.ARTIFACTS_DIR
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     results = {}
 
