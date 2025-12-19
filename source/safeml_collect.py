@@ -1,16 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Coleta métricas SafeML II (Wasserstein + p-valor) e salva para uso posterior
-(heatmaps/limiares) sem recalcular.
-
-Fluxo:
-- Carrega cache de treino (train_data.npz) e teste.
-- Prediz no teste.
-- Para cada classe: amostra até WASSERSTEIN_MAX_SAMPLES de treino/erros/acertos.
-- Calcula WD/p-valor por pixel/canal (R,G,B) entre treino e erros (e também acertos).
-- Salva estatísticas e mapas (wd_maps e wd_sig_maps) em artifacts/safeml_results.npz.
-
-Depois use `safeml_heatmaps.py` para gerar os heatmaps a partir desse arquivo.
+Coleta métricas SafeML II (Wasserstein + p-valor) e salva em artifacts/<tag>/safeml_results.npz.
+- Carrega modelo (svm ou cnn) e cache de treino padrão.
+- Prediz o teste, separa acertos/erros por classe.
+- Calcula WD/p-valor por pixel/canal entre treino e erros (e acertos como baseline).
 """
 
 import sys
@@ -32,66 +25,49 @@ import config
 from data_utils import load_split
 
 
-def compute_wd_maps(
-    train_set: np.ndarray, target_set: np.ndarray
-) -> Optional[Tuple[List[np.ndarray], List[np.ndarray]]]:
-    """Retorna listas de wd_maps e wd_sig_maps (3 canais, shape 30x30)."""
+def compute_wd_maps(train_set: np.ndarray, target_set: np.ndarray) -> Optional[Tuple[List[np.ndarray], List[np.ndarray]]]:
     if len(target_set) == 0 or len(train_set) == 0:
         return None
-
     H, W = config.IMG_SIZE
     train_imgs = train_set.reshape((-1, H, W, 3))
     target_imgs = target_set.reshape((-1, H, W, 3))
-
     wd_maps: List[np.ndarray] = []
     wd_sig_maps: List[np.ndarray] = []
-
     for ch in range(3):
-        train_ch = train_imgs[:, :, :, ch].reshape(train_imgs.shape[0], -1)  # (N, 900)
+        train_ch = train_imgs[:, :, :, ch].reshape(train_imgs.shape[0], -1)
         target_ch = target_imgs[:, :, :, ch].reshape(target_imgs.shape[0], -1)
-
         wd_vals = np.zeros(train_ch.shape[1], dtype=float)
         pvals = np.ones(train_ch.shape[1], dtype=float)
-
         for i in range(train_ch.shape[1]):
             pval, wd = Wasserstein_Dist_PVal(train_ch[:, i], target_ch[:, i])
             wd_vals[i] = wd
             pvals[i] = pval
-
         sig_mask = pvals < config.SAFE_PVAL_ALPHA
         wd_sig = wd_vals.copy()
         wd_sig[~sig_mask] = 0.0
-
         wd_maps.append(wd_vals.reshape(H, W))
         wd_sig_maps.append(wd_sig.reshape(H, W))
-
     return wd_maps, wd_sig_maps
 
 
 def summarize_wd(train_set: np.ndarray, target_set: np.ndarray, rng: np.random.Generator) -> Dict[str, float]:
-    """Estatísticas resumidas (média dos WDs significativos) por canal."""
     if len(target_set) == 0 or len(train_set) == 0:
         return {"channels": [], "features_total": 0}
-
     max_n = config.WASSERSTEIN_MAX_SAMPLES
     if max_n is not None:
         if len(train_set) > max_n:
-            idx = rng.choice(len(train_set), size=max_n, replace=False)
-            train_set = train_set[idx]
+            train_set = train_set[rng.choice(len(train_set), size=max_n, replace=False)]
         if len(target_set) > max_n:
-            idx = rng.choice(len(target_set), size=max_n, replace=False)
-            target_set = target_set[idx]
-
+            target_set = target_set[rng.choice(len(target_set), size=max_n, replace=False)]
     H, W = config.IMG_SIZE
     train_imgs = train_set.reshape((-1, H, W, 3))
     target_imgs = target_set.reshape((-1, H, W, 3))
-
     channel_stats = []
     for ch in range(3):
         train_ch = train_imgs[:, :, :, ch].reshape(train_imgs.shape[0], -1)
         target_ch = target_imgs[:, :, :, ch].reshape(target_imgs.shape[0], -1)
-        wd_vals: List[float] = []
-        pvals: List[float] = []
+        wd_vals = []
+        pvals = []
         for i in range(train_ch.shape[1]):
             pval, wd = Wasserstein_Dist_PVal(train_ch[:, i], target_ch[:, i])
             wd_vals.append(wd)
@@ -110,12 +86,10 @@ def summarize_wd(train_set: np.ndarray, target_set: np.ndarray, rng: np.random.G
                 "features": train_ch.shape[1],
             }
         )
-
     return {"channels": channel_stats, "features_total": 3 * train_ch.shape[1]}
 
 
 def sample_set(arr: np.ndarray, paths: Optional[np.ndarray], max_n: Optional[int], rng: np.random.Generator):
-    """Subamostra array (e paths correspondentes) até max_n."""
     if max_n is not None and len(arr) > max_n:
         idx = rng.choice(len(arr), size=max_n, replace=False)
         arr_s = arr[idx]
@@ -126,42 +100,59 @@ def sample_set(arr: np.ndarray, paths: Optional[np.ndarray], max_n: Optional[int
     return arr_s, paths_s
 
 
+def sample_day_night_balanced(
+    arr: np.ndarray,
+    paths: Optional[np.ndarray],
+    max_n: Optional[int],
+    rng: np.random.Generator,
+) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    if paths is None or max_n is None or len(arr) <= max_n:
+        return arr, paths
+    day_mask = np.array(["daySequence" in p for p in paths])
+    night_mask = np.array(["nightSequence" in p for p in paths])
+    arr_day, paths_day = arr[day_mask], paths[day_mask]
+    arr_night, paths_night = arr[night_mask], paths[night_mask]
+    half = max_n // 2
+    sel_day = rng.choice(len(arr_day), size=min(len(arr_day), half), replace=False) if len(arr_day) else np.array([], dtype=int)
+    sel_night = rng.choice(len(arr_night), size=min(len(arr_night), half), replace=False) if len(arr_night) else np.array([], dtype=int)
+    idx_chosen = set()
+    chosen_arr = []
+    chosen_paths = []
+    for idx in sel_day:
+        idx_chosen.add(int(np.where(day_mask)[0][idx]))
+        chosen_arr.append(arr_day[idx])
+        chosen_paths.append(paths_day[idx])
+    for idx in sel_night:
+        idx_chosen.add(int(np.where(night_mask)[0][idx]))
+        chosen_arr.append(arr_night[idx])
+        chosen_paths.append(paths_night[idx])
+    if len(chosen_arr) < max_n:
+        remaining_pool = [i for i in range(len(arr)) if i not in idx_chosen]
+        extra = rng.choice(remaining_pool, size=min(len(remaining_pool), max_n - len(chosen_arr)), replace=False)
+        for i in extra:
+            chosen_arr.append(arr[i])
+            chosen_paths.append(paths[i])
+    return np.array(chosen_arr), np.array(chosen_paths) if paths is not None else None
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Coleta SafeML (Wasserstein + p-valor)")
-    parser.add_argument("--model-path", default=None, help="Caminho do modelo (joblib ou .h5). Se omitido, usa o padrão da tag.")
-    parser.add_argument("--train-cache", default=None, help="Cache de treino (npz) com X_train/y_train/classes. Se omitido, usa o padrão da tag.")
-    parser.add_argument("--tag", default="svm", help="Tag do modelo (ex.: svm, cnn) para escolher caminhos padrão e subpasta de saída.")
-    parser.add_argument("--output", default=None, help="Arquivo de saída .npz (opcional; sobrescreve --tag)")
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--tag", default="svm")
+    parser.add_argument("--only-day", action="store_true")
+    parser.add_argument("--only-night", action="store_true")
     args = parser.parse_args()
 
-    # Define caminhos padrão por tag
     if args.tag == "cnn":
-        default_model = config.MODEL_PATH_CNN
-        default_cache = config.TRAIN_DATA_PATH_CNN
+        model_path = config.MODEL_PATH_CNN
+        train_cache = config.TRAIN_DATA_PATH_CNN
     else:
-        default_model = config.MODEL_PATH
-        default_cache = config.TRAIN_DATA_PATH
+        model_path = config.MODEL_PATH
+        train_cache = config.TRAIN_DATA_PATH
 
-    model_path = Path(args.model_path) if args.model_path else default_model
-    train_cache = Path(args.train_cache) if args.train_cache else default_cache
-    if not model_path.is_absolute():
-        model_path = config.REPO_ROOT / model_path
-    if not train_cache.is_absolute():
-        train_cache = config.REPO_ROOT / train_cache
-
-    if args.output:
-        out_path = Path(args.output)
-        if not out_path.is_absolute():
-            out_path = config.REPO_ROOT / out_path
-        out_dir = out_path.parent
-    else:
-        out_dir = config.ARTIFACTS_DIR / (args.tag or "")
-        out_path = out_dir / "safeml_results.npz"
+    out_dir = config.ARTIFACTS_DIR / (args.tag or "")
+    out_path = out_dir / "safeml_results.npz"
 
     print("Carregando dados para coleta SafeML (Wasserstein)...")
-    if not train_cache.exists():
-        raise SystemExit("Cache de treino não encontrado. Rode o treinamento antes.")
-
     data = np.load(train_cache, allow_pickle=True)
     X_train = data["X_train"]
     y_train = data["y_train"]
@@ -169,13 +160,24 @@ def main():
     print(f"Cache de treino carregado: {len(y_train)} amostras (cache: {train_cache}).")
 
     X_test, y_test, _, paths_test = load_split("test", max_per_class=None, return_paths=True)
+
+    if args.only_day and args.only_night:
+        raise SystemExit("Use apenas um filtro: --only-day ou --only-night.")
+    if args.only_day:
+        mask = np.array(["daySequence" in p for p in paths_test])
+        X_test, y_test, paths_test = X_test[mask], y_test[mask], paths_test[mask]
+    elif args.only_night:
+        mask = np.array(["nightSequence" in p for p in paths_test])
+        X_test, y_test, paths_test = X_test[mask], y_test[mask], paths_test[mask]
+
     print(f"Teste: {len(y_test)} amostras.")
 
-    # Carrega modelo (joblib ou .h5)
     is_cnn = model_path.suffix == ".h5"
     if is_cnn:
         model = load_model(model_path)
-        predict_fn = lambda X: np.argmax(model.predict(X.reshape((-1, config.IMG_SIZE[0], config.IMG_SIZE[1], 3)), verbose=0), axis=1)
+        predict_fn = lambda X: np.argmax(
+            model.predict(X.reshape((-1, config.IMG_SIZE[0], config.IMG_SIZE[1], 3)), verbose=0), axis=1
+        )
     else:
         model = joblib.load(model_path)
         predict_fn = model.predict
@@ -185,6 +187,7 @@ def main():
 
     rng = np.random.default_rng(config.SEED)
     out_dir.mkdir(parents=True, exist_ok=True)
+    balance_day_night = not args.only_day and not args.only_night
 
     results = {}
 
@@ -198,8 +201,20 @@ def main():
         correct_paths_cls = paths_test[correct_cls_mask] if paths_test is not None else None
 
         train_sample, _ = sample_set(train_cls, None, config.WASSERSTEIN_MAX_SAMPLES, rng)
-        wrong_sample, wrong_paths_sample = sample_set(wrong_cls, wrong_paths_cls, config.WASSERSTEIN_MAX_SAMPLES, rng)
-        correct_sample, _ = sample_set(correct_cls, correct_paths_cls, config.WASSERSTEIN_MAX_SAMPLES, rng)
+        if balance_day_night:
+            wrong_sample, wrong_paths_sample = sample_day_night_balanced(
+                wrong_cls, wrong_paths_cls, config.WASSERSTEIN_MAX_SAMPLES, rng
+            )
+            correct_sample, _ = sample_day_night_balanced(
+                correct_cls, correct_paths_cls, config.WASSERSTEIN_MAX_SAMPLES, rng
+            )
+        else:
+            wrong_sample, wrong_paths_sample = sample_set(
+                wrong_cls, wrong_paths_cls, config.WASSERSTEIN_MAX_SAMPLES, rng
+            )
+            correct_sample, _ = sample_set(
+                correct_cls, correct_paths_cls, config.WASSERSTEIN_MAX_SAMPLES, rng
+            )
 
         summary_wrong = summarize_wd(train_sample, wrong_sample, rng)
         summary_correct = summarize_wd(train_sample, correct_sample, rng)
@@ -238,7 +253,6 @@ def main():
             for p in wrong_paths_sample:
                 print(f"    {p}")
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out_path, results=results, classes=np.array(classes))
     print(f"Resultados SafeML salvos em: {out_path}")
 
